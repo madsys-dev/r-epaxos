@@ -1,59 +1,51 @@
-use std::{fmt::Debug, marker::PhantomData};
-
-use crate::{config::Configure, message::{self, Message, Propose}, types::Command, util};
-use async_trait::async_trait;
+use crate::{
+    config::Configure,
+    message::{self, Propose},
+    types::Command,
+};
 use log::{debug, trace};
-use serde::Serialize;
-use tokio::{io::AsyncWriteExt, net::TcpStream};
+use madsim::net::NetLocalHandle;
+use std::{io::Result, marker::PhantomData, net::SocketAddr};
 
-#[async_trait]
-pub trait RpcClient<C>
+pub struct Client<C>
 where
     C: Command,
 {
-    // TODO: check return value
-    async fn propose(&mut self, cmds: Vec<C>);
-}
-
-pub struct TcpRpcClient<C>
-where
-    C: Command,
-{
+    net: NetLocalHandle,
     conf: Configure,
-    stream: TcpStream,
+    addr: SocketAddr,
     phantom: PhantomData<C>,
 }
 
-impl<C> TcpRpcClient<C>
+impl<C> Client<C>
 where
-    C: Command + Serialize + Debug + Send + Sync + 'static,
+    C: Command,
 {
     pub async fn new(conf: Configure, id: usize) -> Self {
-        let conn_str = conf
-            .peer
+        let addr = conf
+            .peers
             .get(id)
             .or_else(|| panic!("id {} is not in the configure scope", id))
-            .unwrap();
-        let stream = TcpStream::connect(conn_str)
-            .await
-            .map_err(|e| panic!("connec to {} epaxos peer failed", id)).unwrap();
-        
+            .unwrap()
+            .clone();
+
         Self {
+            net: NetLocalHandle::current(),
             conf,
-            stream,
+            addr,
             phantom: PhantomData,
         }
     }
-}
 
-#[async_trait]
-impl<C> RpcClient<C> for TcpRpcClient<C>
-where
-    C: Command + Serialize + Debug + Send + Sync + 'static,
-{
-    async fn propose(&mut self, cmds: Vec<C>) {
+    pub async fn propose(&mut self, cmds: Vec<C>) -> Result<()> {
         trace!("start propose");
-        let propose = Message::Propose(Propose { cmds });
-        util::send_message(&mut self.stream, &propose).await;
+        let propose = Propose {
+            cmds: cmds
+                .iter()
+                .map(|c| bincode::serialize(c).unwrap())
+                .collect(),
+        };
+        self.net.call(self.addr, propose).await?;
+        Ok(())
     }
 }

@@ -1,32 +1,29 @@
+use std::net::SocketAddr;
 use std::ops::Index;
-
-use bincode::Config;
 use yaml_rust::YamlLoader;
 
 #[derive(Clone)]
 pub struct Configure {
-    pub(crate) peer_cnt: usize,
-    pub(crate) peer: Vec<String>,
+    pub(crate) peers: Vec<SocketAddr>,
     pub(crate) index: usize,
 }
 
 impl Configure {
     // This should only be used in test
-    pub(crate) fn new(peer_cnt: usize, peer: Vec<String>, index: usize) -> Self{
-        Self {
-            peer_cnt,
-            peer,
-            index,
-        }
+    pub(crate) fn new(peers: Vec<SocketAddr>, index: usize) -> Self {
+        Self { peers, index }
+    }
 
+    pub fn peers(&self) -> &[SocketAddr] {
+        &self.peers
     }
 }
 
 impl Index<usize> for Configure {
-    type Output = str;
+    type Output = SocketAddr;
 
     fn index(&self, index: usize) -> &Self::Output {
-        &self.peer[index]
+        &self.peers[index]
     }
 }
 
@@ -58,21 +55,17 @@ impl ConfigureSrc for YamlConfigureSrc {
         let yaml = yaml.get(0).unwrap();
 
         // TODO: put string to const
-        let peer_cnt = yaml["peer_cnt"].as_i64().unwrap() as usize;
+        let _peer_cnt = yaml["peer_cnt"].as_i64().unwrap() as usize;
 
-        let mut peer = yaml["peer"]
+        let mut peers = yaml["peer"]
             .as_vec()
             .unwrap()
             .iter()
-            .map(|y| y.as_str().unwrap().to_owned())
+            .map(|y| y.as_str().unwrap().parse().unwrap())
             .collect();
 
         let index = yaml["index"].as_i64().unwrap() as usize;
 
-        Configure {
-            peer_cnt,
-            peer,
-            index,
-        }
+        Configure { peers, index }
     }
 }

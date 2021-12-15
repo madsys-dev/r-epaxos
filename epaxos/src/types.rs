@@ -1,12 +1,9 @@
-use std::{
-    borrow::Borrow, cell::RefCell, cmp::max, collections::HashMap, fs::create_dir_all, hash::Hash,
-    iter, rc::Rc, slice::SliceIndex, sync::Arc,
-};
+use std::{collections::HashMap, fmt::Debug, hash::Hash, iter, sync::Arc};
 
 use crate::error::ExecuteError;
 use itertools::Itertools;
 use pro_macro::FromInner;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::sync::{RwLock, RwLockWriteGuard};
 
 pub struct Replica<C>
@@ -73,29 +70,26 @@ where
     // it's not a pure function
     pub(crate) fn merge_seq_deps(
         &self,
-        ins: &mut RwLockWriteGuard::<Instance<C>>,
+        ins: &mut RwLockWriteGuard<Instance<C>>,
         new_seq: &Seq,
         new_deps: &Vec<Option<LocalInstanceId>>,
     ) -> bool {
         let mut equal = true;
         if &ins.seq != new_seq {
             equal = false;
-            if new_seq > &ins.seq{
+            if new_seq > &ins.seq {
                 ins.seq = *new_seq;
             }
         }
 
-        ins.deps
-            .iter_mut()
-            .zip(new_deps.iter())
-            .for_each(|(o, n)| {
-                if o != n {
-                    equal = false;
-                    if o.is_none() || (n.is_some() && o.as_ref().unwrap() < n.as_ref().unwrap()) {
-                        *o = *n;
-                    }
+        ins.deps.iter_mut().zip(new_deps.iter()).for_each(|(o, n)| {
+            if o != n {
+                equal = false;
+                if o.is_none() || (n.is_some() && o.as_ref().unwrap() < n.as_ref().unwrap()) {
+                    *o = *n;
                 }
-            });
+            }
+        });
         equal
     }
 
@@ -197,7 +191,7 @@ where
 }
 
 #[async_trait::async_trait]
-pub trait Command {
+pub trait Command: Debug + Clone + Serialize + DeserializeOwned + Send + Sync + 'static {
     /// K is used to tell confliction
     type K: Eq + Hash + Send + Sync + Clone + 'static;
 
@@ -227,7 +221,7 @@ pub(crate) struct ReplicaId(usize);
 pub(crate) struct LocalInstanceId(usize);
 
 /// The global instance id
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub(crate) struct InstanceId {
     pub(crate) replica: ReplicaId,
     pub(crate) inner: LocalInstanceId,
@@ -274,7 +268,7 @@ impl LeaderBook {
 }
 
 /// The leader id for a instance propose, used in the message passing
-#[derive(Debug, FromInner, Serialize, Deserialize)]
+#[derive(Debug, Clone, FromInner, Serialize, Deserialize)]
 pub(crate) struct LeaderId(usize);
 
 /// The acceptor id
